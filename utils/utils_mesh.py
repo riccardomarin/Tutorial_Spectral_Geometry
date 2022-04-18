@@ -3,6 +3,14 @@ import os
 from plyfile import PlyData, PlyElement 
 import torch
 
+def load_off(file):
+    import numpy as np
+    f=file.readline().strip()
+    n_verts, n_faces, n_dontknow = tuple([int(s) for s in file.readline().strip().split(' ')])
+    verts = [[float(s) for s in file.readline().strip().split(' ')] for i_vert in range(n_verts)]
+    faces = [[int(s) for s in file.readline().strip().split(' ')][1:] for i_face in range(n_faces)]
+    return np.asarray(verts), faces
+
 def load_ply(fname):
     plydata = PlyData.read(fname)
     return [np.ascontiguousarray([np.asarray(plydata['vertex'][d]) for d in ['x','y','z']],dtype='float32').T, \

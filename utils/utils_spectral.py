@@ -89,9 +89,14 @@ def LB_cotan(V, F):
     #tensor type and device
     device = V.device
     dtype = V.dtype
+    no_batch = 0
     
-    indices_repeat = torch.stack([F, F, F], dim=2)
+    if(len(V.shape)==2):
+        V = torch.unsqueeze(V,0)
+        F = torch.unsqueeze(F,0)
+        no_batch = 1
 
+    indices_repeat = torch.stack([F, F, F], dim=2)
     # v1 is the list of first triangles B*F*3, v2 second and v3 third
     v1 = torch.gather(V, 1, indices_repeat[:, :, :, 0].long())
     v2 = torch.gather(V, 1, indices_repeat[:, :, :, 1].long())
@@ -155,8 +160,10 @@ def LB_cotan(V, F):
     VF_adj = VF_adjacency_matrix(V[0], F[0]).unsqueeze(0).expand(B, num_vertices_full, num_faces)  # VALIDATED
     V_area = (torch.bmm(VF_adj, A.unsqueeze(2)) / 3).squeeze()  # vector of local area components VALIDATED
 
+    if no_batch:
+        W = torch.squeeze(W)
+        V_area = torch.squeeze(V_area)
     return W, V_area
-
 
 def VF_adjacency_matrix(V, F):
     """

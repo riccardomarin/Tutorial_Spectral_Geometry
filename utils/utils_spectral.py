@@ -5,6 +5,8 @@ from scipy.linalg import eigh
 from scipy.sparse import csr_matrix
 import time
 import scipy
+import scipy.sparse 
+import scipy.io 
 import scipy.io as sio
 from scipy.sparse.linalg import eigsh
 
@@ -17,31 +19,30 @@ class Eigendecomposition(torch.autograd.Function):
     
     # Note that both forward and backward are @staticmethods
     @classmethod
-    def forward(cls,ctx, input_matrix, K, N):
+    def forward(cls,ctx, input_matrix, K):
 #         t = time.time()
         if USE_PYTORCH_SYMEIG:
             eigvals, eigvecs = torch.symeig(input_matrix, eigenvectors=True)
         else:
             input_matrix_np = input_matrix.data.cpu().numpy()
-            Knp = K.data.numpy()
+            Knp = int(K)
 
-            #Full decomposition
-#             eigvals, eigvecs = eigh(input_matrix_np, lower=True)
-
-            #Smalleste eigenvalues with full matrix
-#             eigvals, eigvecs = eigh(input_matrix_np, eigvals=(0, Knp - 1), lower=True)
-
-            #Smallest eigenvalues with sparse matrix            
-            SM = scipy.sparse.csr_matrix(input_matrix_np)
-            eigvals, eigvecs = scipy.sparse.linalg.eigsh(SM, k=Knp, sigma=-1e-6, v0=cls.v0)
+            if K==input_matrix.shape[-1]:
+                #Full decomposition
+                eigvals, eigvecs = eigh(input_matrix_np, lower=True)
+            else:
+                #Smallest eigenvalues with sparse matrix            
+                SM = scipy.sparse.csr_matrix(input_matrix_np)
+                eigvals, eigvecs = scipy.sparse.linalg.eigsh(SM, k=Knp, sigma=-1e-6, v0=cls.v0)
             
 #             cls.v0 = eigvecs[:,0]
             
-            eigvals = torch.from_numpy(eigvals).cuda()
-            eigvecs = torch.from_numpy(eigvecs).cuda()            
+            eigvals = torch.from_numpy(eigvals).to(input_matrix.device)
+            eigvecs = torch.from_numpy(eigvecs).to(input_matrix.device)         
                         
 #         print(time.time()-t)
-        ctx.save_for_backward(input_matrix, eigvals, eigvecs, K, N)
+        ctx.K = K
+        ctx.save_for_backward(input_matrix, eigvals, eigvecs)
         return (eigvecs[:,:K], eigvals[:K])
 
     @staticmethod
@@ -50,11 +51,11 @@ class Eigendecomposition(torch.autograd.Function):
         #grad_output2 stands for the grad of eigvals
         
 #         t = time.time()
-        input_matrix, eigvals, eigvecs, K, N = ctx.saved_tensors
+        input_matrix, eigvals, eigvecs= ctx.saved_tensors
+        K = ctx.K
         
         Kknp = eigvals.shape[0]
         grad_K = None
-        grad_N = None
         
         #NOTE: if we suffer memory issues we can split the K eigenvectors and iterate using an accumulator
         with torch.no_grad():
@@ -70,7 +71,7 @@ class Eigendecomposition(torch.autograd.Function):
                 for i in range(K):
                     grad_input_matrix += eigvecs[None,:,i]*eigvecs[:,None,i]*grad_output2[i]               
     
-        return grad_input_matrix, grad_K, grad_N
+        return grad_input_matrix, grad_K
 
 # Aliasing
 Eigendecomposition = Eigendecomposition.apply
@@ -193,26 +194,22 @@ class EigendecompositionSparse(torch.autograd.Function):
     
     # Note that both forward and backward are @staticmethods
     @classmethod
-    def forward(cls,ctx, values, indices, K, N):
-#         t = time.time()
-        if USE_PYTORCH_SYMEIG:
-            eigvals, eigvecs = torch.symeig(input_matrix, eigenvectors=True)
-        else:
-            # input_matrix_np = input_matrix.data.cpu().numpy()
-            Knp = K.data.numpy()
+    def forward(cls,ctx, values, indices, K):
+        Knp = int(K)
 
-            valuesnp = values.data.cpu().numpy()
-            indicesnp = indices.data.cpu().numpy()
-                
-            SM = scipy.sparse.coo_matrix((valuesnp, indicesnp)).tocsc()
+        valuesnp = values.data.cpu().numpy()
+        indicesnp = indices.data.cpu().numpy()
 
-            eigvals, eigvecs = eigsh(SM, k=Knp, sigma=-1e-6, v0=cls.v0, which='LM')
+        SM = scipy.sparse.coo_matrix((valuesnp, indicesnp)).tocsc()
 
-            eigvals = torch.from_numpy(eigvals).cuda()
-            eigvecs = torch.from_numpy(eigvecs).cuda()            
+        eigvals, eigvecs = eigsh(SM, k=Knp, sigma=-1e-6, v0=cls.v0, which='LM')
+
+        eigvals = torch.from_numpy(eigvals).cuda()
+        eigvecs = torch.from_numpy(eigvecs).cuda()            
                         
 #         print(time.time()-t)
-        ctx.save_for_backward(indices, eigvals, eigvecs, K, N)
+        ctx.save_for_backward(indices, eigvals, eigvecs)
+        ctx.K = K
         return (eigvecs[:,:K], eigvals[:K])
 
     @staticmethod
@@ -221,7 +218,8 @@ class EigendecompositionSparse(torch.autograd.Function):
         #grad_output2 stands for the grad of eigvals
         
 #         t = time.time()
-        indices, eigvals, eigvecs, K, N = ctx.saved_tensors
+        indices, eigvals, eigvecs = ctx.saved_tensors
+        K = ctx.K
         
         Kknp = eigvals.shape[0]
         grad_K = None
@@ -240,7 +238,7 @@ class EigendecompositionSparse(torch.autograd.Function):
 
             if grad_output2.abs().sum()>0:
                 grad_input_matrix += (eigvecs[indices[0]] * grad_output2[None, :] * eigvecs[indices[1]]).sum(-1)
-        return grad_input_matrix, None,  grad_K, grad_N
+        return grad_input_matrix, None,  grad_K
 
 
 # Aliasing
@@ -315,14 +313,21 @@ def LB_FEM_sparse(vertices, faces, symmetric=True, device='cuda'):
     lower_inv=None
     if symmetric:
        lower_inv = lumped_mass.rsqrt()
-       stiff = sparse_dense_mul(stiff, lower_inv[None, :] * lower_inv[:, None]).coalesce()  # <- INEFFICIENCY
+       stiff = left_right_vec_mul(stiff, lower_inv)  # <- INEFFICIENCY
     
     return stiff, lumped_mass, lower_inv
 
-def sparse_dense_mul(s, d):
+def left_right_vec_mul(m, d):
     # implements point-wise product sparse * dense
-    s = s.coalesce()
-    i = s.indices()
-    v = s.values()
-    dv = d[i[0,:], i[1,:]]  # get values from relevant entries of dense matrix
-    return torch.sparse.FloatTensor(i, v * dv, s.size()).coalesce()
+    m = m.coalesce()
+    i = m.indices()
+    v = m.values()
+    return torch.sparse.FloatTensor(i, v * d[i[0,:]] * d[i[1,:]], m.size()).coalesce()
+
+# def sparse_dense_mul(s, d):
+#     # implements point-wise product sparse * dense
+#     s = s.coalesce()
+#     i = s.indices()
+#     v = s.values()
+#     dv = d[i[0,:], i[1,:]]  # get values from relevant entries of dense matrix
+#     return torch.sparse.FloatTensor(i, v * dv, s.size()).coalesce()

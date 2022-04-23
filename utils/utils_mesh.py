@@ -109,7 +109,7 @@ def plot_colormap(verts, trivs, colors=None, colorscale=[[0, 'rgb(0,0,255)'], [0
     #     fig = go.Figure(data=[mesh], layout=layout)
     fig.update_layout(
         #       autosize=True,
-        margin=dict(l=10, r=10, t=10, b=10))
+        margin=dict(l=10, r=10, t=2, b=2))
         #paper_bgcolor="LightSteelBlue")
     #fig.show()
     return fig

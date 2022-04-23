@@ -22,7 +22,7 @@ class Eigendecomposition(torch.autograd.Function):
     def forward(cls,ctx, input_matrix, K):
 #         t = time.time()
         if USE_PYTORCH_SYMEIG:
-            eigvals, eigvecs = torch.symeig(input_matrix, eigenvectors=True)
+            eigvals, eigvecs = totorch.linalg.eigh(input_matrix)
         else:
             input_matrix_np = input_matrix.data.cpu().numpy()
             Knp = int(K)

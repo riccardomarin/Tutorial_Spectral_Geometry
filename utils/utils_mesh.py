@@ -25,7 +25,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 
-def plot_colormap(verts, trivs, colors=None, colorscale=[[0, 'rgb(0,0,255)'], [0.5, 'rgb(255,255,255)'], [1, 'rgb(255,0,0)']], point_size=2):
+def plot_colormap(verts, trivs, colors=None, colorscale=[[0, 'rgb(0,0,255)'], [0.5, 'rgb(255,255,255)'], [1, 'rgb(255,0,0)']], point_size=2, wireframe=False):
     "Draw multiple triangle meshes side by side"
     "colors must be list(range(num colors))"
     if type(verts) is not list:
@@ -86,7 +86,19 @@ def plot_colormap(verts, trivs, colors=None, colorscale=[[0, 'rgb(0,0,255)'], [0
 
         fig.add_trace(mesh, row=1, col=i + 1)
         fig.get_subplot(1, i + 1).aspectmode = "data"
-
+        
+        if wireframe and triv is not None:
+            tripts = vert[triv]
+            tripts = np.concatenate([tripts,tripts[:,0:1,:],tripts[:,0:1,:]*np.nan],1).reshape(-1,3)
+            lines = go.Scatter3d(
+                   x=tripts[:,0],
+                   y=tripts[:,2],
+                   z=tripts[:,1],
+                   mode='lines',
+                   name='',
+                   line=dict(color= '#000000', width=2))  
+            fig.add_trace(lines, row=1, col=i + 1)
+            
         camera = dict(
             up=dict(x=0, y=0, z=1),
             center=dict(x=0, y=0, z=0),

@@ -19,7 +19,7 @@ class Eigendecomposition(torch.autograd.Function):
     
     # Note that both forward and backward are @staticmethods
     @classmethod
-    def forward(cls,ctx, input_matrix, K):
+    def forward(cls,ctx, input_matrix, K, notused=None):
 #         t = time.time()
         if USE_PYTORCH_SYMEIG:
             eigvals, eigvecs = totorch.linalg.eigh(input_matrix)
@@ -71,7 +71,7 @@ class Eigendecomposition(torch.autograd.Function):
                 for i in range(K):
                     grad_input_matrix += eigvecs[None,:,i]*eigvecs[:,None,i]*grad_output2[i]               
     
-        return grad_input_matrix, grad_K
+        return grad_input_matrix, grad_K, None
 
 # Aliasing
 Eigendecomposition = Eigendecomposition.apply
@@ -194,7 +194,7 @@ class EigendecompositionSparse(torch.autograd.Function):
     
     # Note that both forward and backward are @staticmethods
     @classmethod
-    def forward(cls,ctx, values, indices, K):
+    def forward(cls,ctx, values, indices, K, notused=None):
         Knp = int(K)
 
         valuesnp = values.data.cpu().numpy()
@@ -238,7 +238,7 @@ class EigendecompositionSparse(torch.autograd.Function):
 
             if grad_output2.abs().sum()>0:
                 grad_input_matrix += (eigvecs[indices[0]] * grad_output2[None, :] * eigvecs[indices[1]]).sum(-1)
-        return grad_input_matrix, None,  grad_K
+        return grad_input_matrix, None,  grad_K, None
 
 
 # Aliasing

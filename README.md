@@ -10,4 +10,5 @@ https://github.com/melzismn/fmap
 
 https://github.com/AriannaRampini/InverseSpectralGeometry_3DVTutorial
 
+https://github.com/lcosmo/isospectralization
 
